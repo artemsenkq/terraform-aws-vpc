@@ -274,14 +274,32 @@ variable "enable_nat_gateway" {
   default     = false
 }
 
+variable "enable_nat_instance" {
+  description = "Should be true if you want to provision NAT Instances for each of your private networks"
+  type        = bool
+  default     = false
+}
+
 variable "single_nat_gateway" {
   description = "Should be true if you want to provision a single shared NAT Gateway across all of your private networks"
   type        = bool
   default     = false
 }
 
+variable "single_nat_instance" {
+  description = "Should be true if you want to provision a single shared NAT Instance across all of your private networks"
+  type        = bool
+  default     = false
+}
+
 variable "one_nat_gateway_per_az" {
   description = "Should be true if you want only one NAT Gateway per availability zone. Requires `var.azs` to be set, and the number of `public_subnets` created to be greater than or equal to the number of availability zones specified in `var.azs`."
+  type        = bool
+  default     = false
+}
+
+variable "one_nat_instance_per_az" {
+  description = "Should be true if you want only one NAT Instance per availability zone. Requires `var.azs` to be set, and the number of `public_subnets` created to be greater than or equal to the number of availability zones specified in `var.azs`."
   type        = bool
   default     = false
 }
@@ -2014,6 +2032,25 @@ variable "nat_gateway_tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "nat_instance_tags" {
+  description = "Additional tags for the NAT instnaces"
+  type        = map(string)
+  default     = {}
+}
+
+variable "nat_instance_name_tag" {
+  description = "Nat tag to be used on all the NAT resources as identifier"
+  type        = string
+  default     = ""
+}
+
+variable "nat_instance_type" {
+  description = "Type to be used on all the NAT resources"
+  type        = string
+  default     = "t3.nano"
+}
+
 
 variable "nat_eip_tags" {
   description = "Additional tags for the NAT EIP"

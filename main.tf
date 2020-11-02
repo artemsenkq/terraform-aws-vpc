@@ -7,6 +7,9 @@ locals {
   )
   nat_gateway_count = var.single_nat_gateway ? 1 : var.one_nat_gateway_per_az ? length(var.azs) : local.max_subnet_length
 
+  nat_instance_count = var.single_nat_instance ? 1 : var.one_nat_instance_per_az ? length(var.azs) : local.max_subnet_length
+
+
   # Use `local.vpc_id` to give a hint to Terraform that subnets should be deleted before secondary CIDR blocks can be free!
   vpc_id = element(
     concat(
@@ -159,6 +162,7 @@ resource "aws_egress_only_internet_gateway" "this" {
     var.igw_tags,
   )
 }
+
 
 ################
 # Publiс routes
@@ -969,6 +973,19 @@ resource "aws_route" "private_nat_gateway" {
   }
 }
 
+resource "aws_route" "private_nat_instance" {
+  count = var.create_vpc && var.enable_nat_instance ? local.nat_instance_count : 0
+
+  route_table_id         = element(aws_route_table.private.*.id, count.index)
+  destination_cidr_block = "0.0.0.0/0"
+  network_interface_id   = aws_instance.nat_instance[count.index].primary_network_interface_id
+
+  timeouts {
+    create = "5m"
+  }
+}
+
+
 resource "aws_route" "private_ipv6_egress" {
   count = var.create_vpc && var.create_egress_only_igw && var.enable_ipv6 ? length(var.private_subnets) : 0
 
@@ -977,6 +994,111 @@ resource "aws_route" "private_ipv6_egress" {
   egress_only_gateway_id      = element(aws_egress_only_internet_gateway.this.*.id, 0)
 }
 
+
+################
+# Network interfaces for Nat Instances
+################
+/*
+resource "aws_network_interface" "nat_instance" {
+  count = var.create_vpc && var.enable_nat_instance ? local.nat_instance_count : 0
+  subnet_id = element(
+    aws_subnet.public.*.id,
+    var.single_nat_gateway ? 0 : count.index,
+  )
+  source_dest_check = false
+
+  tags = merge(
+    {
+      "Name" = format(
+        "%s-%s",
+        var.name,
+        element(var.azs, var.single_nat_instance ? 0 : count.index),
+      )
+    },
+    var.tags,
+    var.nat_instance_tags,
+  )
+}
+*/
+################
+# EC2 as Nat Instances
+################
+
+#Nat network interfaces
+
+resource "aws_security_group" "nopass-nat-instance" {
+  name        = "nat-instance"
+  description = "NAT rule"
+  vpc_id      = aws_vpc.this[0].id
+
+  dynamic "ingress" {
+    for_each = ["80", "443"]
+    content {
+      from_port   = ingress.value
+      to_port     = ingress.value
+      protocol    = "tcp"
+      cidr_blocks = [aws_vpc.this[0].cidr_block]
+    }
+  }
+  dynamic "egress" {
+    for_each = ["80", "443"]
+    content {
+      from_port   = egress.value
+      to_port     = egress.value
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
+  tags = var.tags
+}
+
+# Find latest nat instance
+
+data "aws_ami" "latest_ami_vpc_nat" {
+  owners      = ["137112412989"]
+  most_recent = true
+  filter {
+    name   = "name"
+    values = ["amzn-ami-vpc-nat-hvm-*"]
+  }
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
+  }
+  filter {
+    name   = "root-device-type"
+    values = ["ebs"]
+  }
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
+resource "aws_instance" "nat_instance" {
+  count             = var.create_vpc && var.enable_nat_instance ? local.nat_instance_count : 0
+  availability_zone = length(regexall("^[a-z]{2}-", element(var.azs, count.index))) > 0 ? element(var.azs, count.index) : null
+  subnet_id = element(
+    aws_subnet.public.*.id,
+    var.single_nat_gateway ? 0 : count.index,
+  )
+  ami                    = data.aws_ami.latest_ami_vpc_nat.id
+  instance_type          = var.nat_instance_type
+  vpc_security_group_ids = [aws_security_group.nopass-nat-instance.id]
+  source_dest_check      = false
+
+  tags = merge(
+    {
+      "Name" = format(
+        "%s-%s",
+        var.nat_instance_name_tag,
+        element(var.azs, var.single_nat_instance ? 0 : count.index),
+      )
+    },
+    var.tags,
+    var.nat_instance_tags,
+  )
+}
 ##########################
 # Route table association
 ##########################
